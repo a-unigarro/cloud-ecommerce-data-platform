@@ -6,8 +6,11 @@ __pycache__/
 # C extensions
 *.so
 
-### Raw data folder
-data/
+### Root raw data folder
+/data/
+
+envs/
+*.tmp
 
 # Distribution / packaging
 .Python
@@ -221,3 +224,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
