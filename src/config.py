@@ -31,3 +31,6 @@ FX_BASE_CURRENCY = "BRL"
 FX_QUOTES = ["EUR", "USD"]
 FX_START_DATE = "2016-09-01"   # Olist orders span roughly Sept 2016 - Oct 2018
 FX_END_DATE = "2018-10-31"
+
+
+PROCESSED_DIR = Path(os.getenv("PROCESSED_DIR", PROJECT_ROOT / "data" / "processed" / "olist"))

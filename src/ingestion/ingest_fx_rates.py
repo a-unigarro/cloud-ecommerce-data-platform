@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from tracemalloc import start
 
-import pandas as pd
+
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
