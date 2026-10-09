@@ -4,7 +4,7 @@ from datetime import datetime
 import pytest
 
 from src import config
-from src.transform import transform_orders as t
+from src.transform import transform_dataset as t
 from src.transform.schemas import ORDERS_SCHEMA
 
 HEADER = ("order_id,customer_id,order_status,order_purchase_timestamp,order_approved_at,"
@@ -22,7 +22,7 @@ def test_clean_orders_standardizes_text_and_adds_ingestion_date(spark):
     raw = spark.createDataFrame(
         [(" o1 ", " c1", " Delivered ", ts, None, None, None, ts)], ORDERS_SCHEMA)
 
-    row = t.clean_orders(raw, "2026-01-15").collect()[0]
+    row = t.clean_dataset("orders", raw, "2026-01-15").collect()[0]
 
     assert row.order_id == "o1"
     assert row.customer_id == "c1"
@@ -36,7 +36,7 @@ def test_clean_orders_never_drops_rows_or_fills_nulls(spark):
         [("o1", "c1", "canceled", ts, None, None, None, ts),
          ("o2", "c2", "shipped", ts, None, None, None, ts)], ORDERS_SCHEMA)
 
-    out = t.clean_orders(raw, "2026-01-15")
+    out = t.clean_dataset("orders", raw, "2026-01-15")
 
     assert out.count() == 2
     assert out.filter("order_delivered_customer_date IS NOT NULL").count() == 0
@@ -69,7 +69,7 @@ def read_processed(spark, processed):
 def test_run_writes_typed_parquet_partition(spark, dirs):
     raw, processed = dirs
     make_raw(raw, "2026-01-15")
-    t.run("2026-01-15", spark=spark)
+    t.run("orders", "2026-01-15", spark=spark)
 
     assert (processed / "orders" / "ingestion_date=2026-01-15").exists()
     df = read_processed(spark, processed)
@@ -82,7 +82,7 @@ def test_run_defaults_to_latest_completed_date(spark, dirs):
     make_raw(raw, "2026-01-15")
     make_raw(raw, "2026-01-16")
     (raw / "orders" / "ingestion_date=2026-01-17").mkdir()   # no manifest: must be ignored
-    t.run(spark=spark)
+    t.run("orders", spark=spark)
 
     assert (processed / "orders" / "ingestion_date=2026-01-16").exists()
     assert not (processed / "orders" / "ingestion_date=2026-01-17").exists()
@@ -91,8 +91,8 @@ def test_run_defaults_to_latest_completed_date(spark, dirs):
 def test_rerun_same_date_does_not_duplicate(spark, dirs):
     raw, processed = dirs
     make_raw(raw, "2026-01-15")
-    t.run("2026-01-15", spark=spark)
-    t.run("2026-01-15", spark=spark)
+    t.run("orders", "2026-01-15", spark=spark)
+    t.run("orders", "2026-01-15", spark=spark)
     assert read_processed(spark, processed).count() == 2
 
 
@@ -100,8 +100,9 @@ def test_new_date_keeps_previous_partition(spark, dirs):
     raw, processed = dirs
     make_raw(raw, "2026-01-15")
     make_raw(raw, "2026-01-16")
-    t.run("2026-01-15", spark=spark)
-    t.run("2026-01-16", spark=spark)
+    t.run("orders", "2026-01-15", spark=spark)
+    t.run("orders", "2026-01-16", spark=spark)
+
 
     df = read_processed(spark, processed)
     assert df.count() == 4
@@ -113,5 +114,5 @@ def test_row_count_mismatch_with_manifest_fails_and_writes_nothing(spark, dirs):
     make_raw(raw, "2026-01-15", manifest_rows=5)   # manifest claims 5, file has 2
     # The error should be a ValueError type and contain the word "manifest" in the message.
     with pytest.raises(ValueError, match="manifest"):
-        t.run("2026-01-15", spark=spark)
+        t.run("orders", "2026-01-15", spark=spark)
     assert not (processed / "orders").exists()
