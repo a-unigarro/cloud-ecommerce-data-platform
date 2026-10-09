@@ -3,6 +3,11 @@
 Processed layout (mirrors raw / future S3):
     processed/olist/<dataset>/ingestion_date=YYYY-MM-DD/part-*.parquet
 """
+
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
 import argparse
 import json
 import logging
@@ -101,18 +106,41 @@ def run(name: str, ingestion_date: str | None = None, spark: SparkSession | None
            .partitionBy("ingestion_date")
            .parquet(str(config.PROCESSED_DIR / name)))
         log.info("%-22s wrote %9d rows for ingestion_date=%s", name, actual, ingestion_date)
+        partition = config.PROCESSED_DIR / name / f"ingestion_date={ingestion_date}"
+        return {
+            "dataset": name,
+            "source_ingestion_date": ingestion_date,
+            "transformed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "row_count": actual,
+            "columns": [{"name": n, "type": t} for n, t in df.dtypes],
+            "files": [{"path": str(f.relative_to(config.PROCESSED_DIR)),
+                       "size_bytes": f.stat().st_size}
+                      for f in sorted(partition.glob("*.parquet"))],
+        }
     finally:
         if owns_spark:
             spark.stop()
 
 
-def run_all(ingestion_date: str | None = None, spark: SparkSession | None = None) -> None:
+def write_processed_manifest(entries: list[dict], ingestion_date: str) -> Path:
+    manifest_dir = config.PROCESSED_DIR / "_manifests" / f"ingestion_date={ingestion_date}"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    path = manifest_dir / "manifest.json"
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps({"ingestion_date": ingestion_date, "datasets": entries}, indent=2))
+    os.replace(tmp, path)
+    return path
+
+
+def run_all(ingestion_date: str | None = None, spark: SparkSession | None = None) -> Path:
     owns_spark = spark is None
     spark = spark or get_spark("transform-all")
     try:
         ingestion_date = ingestion_date or latest_completed_date(config.RAW_DIR)
-        for name in SPECS:
-            run(name, ingestion_date, spark=spark)
+        entries = [run(name, ingestion_date, spark=spark) for name in SPECS]
+        manifest = write_processed_manifest(entries, ingestion_date)   # last = completion marker
+        log.info("processed manifest written: %s", manifest)
+        return manifest
     finally:
         if owns_spark:
             spark.stop()
