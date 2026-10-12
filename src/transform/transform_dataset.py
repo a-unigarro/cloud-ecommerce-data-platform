@@ -122,8 +122,10 @@ def run(name: str, ingestion_date: str | None = None, spark: SparkSession | None
             spark.stop()
 
 
-def write_processed_manifest(entries: list[dict], ingestion_date: str) -> Path:
-    manifest_dir = config.PROCESSED_DIR / "_manifests" / f"ingestion_date={ingestion_date}"
+
+def write_processed_manifest(entries: list[dict], ingestion_date: str, base_dir: Path | None = None) -> Path:
+    base_dir = base_dir or config.PROCESSED_DIR
+    manifest_dir = base_dir / "_manifests" / f"ingestion_date={ingestion_date}"
     manifest_dir.mkdir(parents=True, exist_ok=True)
     path = manifest_dir / "manifest.json"
     tmp = path.with_suffix(".json.tmp")

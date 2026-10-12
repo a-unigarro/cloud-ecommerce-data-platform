@@ -34,3 +34,5 @@ FX_END_DATE = "2018-10-31"
 
 
 PROCESSED_DIR = Path(os.getenv("PROCESSED_DIR", PROJECT_ROOT / "data" / "processed" / "olist"))
+
+PROCESSED_API_DIR = Path(os.getenv("PROCESSED_API_DIR", PROJECT_ROOT / "data" / "processed" / "frankfurter"))
