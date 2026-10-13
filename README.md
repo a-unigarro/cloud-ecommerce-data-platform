@@ -7,7 +7,7 @@ Planned stack: Python, PySpark, Airflow, AWS S3, Parquet, Athena, dbt, Terraform
 ## Status
 
 Milestone 1 (complete): local ingestion of the Olist CSV files and the Frankfurter exchange-rate API into a raw layer, with manifests and tests. Nothing runs on AWS yet.
-Milestone 2 (in progress): PySpark transformations from raw CSV to processed Parquet, starting with orders.
+Milestone 2 (complete): PySpark transformations from raw to processed Parquet for all Olist datasets and the exchange-rate API, with schema enforcement, reconciliation against raw manifests, and a manifest per processed layer. Everything still runs locally.
  
 ## Architecture (target)
  
@@ -23,6 +23,8 @@ The data is not committed to the repository. To reproduce the setup:
 3. Run the ingestion: python -m src.ingestion.ingest_olist
 4. Fetch exchange rates (BRL to EUR/USD, no API key needed): python -m src.ingestion.ingest_fx_rates
 5. Run the tests: pytest
+6. Transform to Parquet: python -m src.transform.transform_dataset
+7. Transform exchange rates: python -m src.transform.transform_fx_rates
 
 Requires Python 3.11 and Java 17 (conda install -c conda-forge openjdk=17), plus the packages in requirements.txt.
  
@@ -33,6 +35,9 @@ Requires Python 3.11 and Java 17 (conda install -c conda-forge openjdk=17), plus
 - data/raw/olist/_manifests/ingestion_date=YYYY-MM-DD/manifest.json: row counts, columns, file sizes and SHA-256 checksums for each ingested file.
 - data/raw/frankfurter/exchange_rates/ingestion_date=YYYY-MM-DD/: monthly JSON files, exactly as returned by the Frankfurter v2 API.
 - data/raw/frankfurter/_manifests/...: manifest for the API ingestion, same convention as Olist.
+- data/processed/olist/<dataset>/ingestion_date=YYYY-MM-DD/: typed, cleaned Parquet (one file per dataset per date).
+- data/processed/frankfurter/exchange_rates/ingestion_date=YYYY-MM-DD/: exchange rates in long format (one row per date and currency).
+- Each processed source has a _manifests/ folder written last; a date without a manifest is incomplete and must not be read.
  
 ## Design notes
  
@@ -41,6 +46,8 @@ Requires Python 3.11 and Java 17 (conda install -c conda-forge openjdk=17), plus
 - The manifest is written only after all datasets are copied successfully, so it acts as a completion marker. Downstream steps should only process a date if its manifest exists.
 - The API response is stored as the original bytes. It is validated before writing, so an unexpected response shape fails loudly instead of landing in raw.
 - ingestion_date is when data was fetched, not the date of the data itself.
+- Cleaning standardizes values but never drops rows or fills nulls; missing delivery dates are real information.
+- Raw keeps the source's original names (including typos); renaming happens in the processed layer.
 ## Documentation
  
 See docs/data_dictionary.md for a description of the Olist tables and their relationships.

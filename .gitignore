@@ -8,7 +8,7 @@ __pycache__/
 
 ### Root raw data folder
 /data/
-
+logs/
 envs/
 *.tmp
 
