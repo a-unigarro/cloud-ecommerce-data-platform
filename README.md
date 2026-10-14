@@ -8,6 +8,7 @@ Planned stack: Python, PySpark, Airflow, AWS S3, Parquet, Athena, dbt, Terraform
 
 Milestone 1 (complete): local ingestion of the Olist CSV files and the Frankfurter exchange-rate API into a raw layer, with manifests and tests. Nothing runs on AWS yet.
 Milestone 2 (complete): PySpark transformations from raw to processed Parquet for all Olist datasets and the exchange-rate API, with schema enforcement, reconciliation against raw manifests, and a manifest per processed layer. Everything still runs locally.
+Milestone 3 (complete): Airflow 3 runs the pipeline in Docker (LocalExecutor, Postgres metadata database). One DAG, olist_platform, ingests and transforms both sources in parallel branches. Everything still runs locally.
  
 ## Architecture (target)
  
@@ -27,6 +28,17 @@ The data is not committed to the repository. To reproduce the setup:
 7. Transform exchange rates: python -m src.transform.transform_fx_rates
 
 Requires Python 3.11 and Java 17 (conda install -c conda-forge openjdk=17), plus the packages in requirements.txt.
+
+## Running the pipeline with Airflow
+
+Requires Docker. Create a .env file from .env.example (set AIRFLOW_UID to the output of `id -u`, a password, and a JWT secret), then:
+
+1. mkdir -p dags logs
+2. docker compose build
+3. docker compose up -d
+4. Open http://localhost:8085, unpause the olist_platform DAG and trigger it. Leave the date empty to use today (UTC), or enter YYYY-MM-DD to reprocess a specific date.
+
+Run the DAG integrity tests with ./scripts/test_dags.sh and the rest of the tests with pytest.
  
 ## Data layers
  
@@ -48,6 +60,10 @@ Requires Python 3.11 and Java 17 (conda install -c conda-forge openjdk=17), plus
 - ingestion_date is when data was fetched, not the date of the data itself.
 - Cleaning standardizes values but never drops rows or fills nulls; missing delivery dates are real information.
 - Raw keeps the source's original names (including typos); renaming happens in the processed layer.
+- The DAG resolves the ingestion date once and passes it to every task, so all tasks agree even if a run crosses midnight.
+- Each transformation starts only after its own ingestion succeeds; the Olist and exchange-rate branches are independent.
+- Only the API ingestion retries; the other steps fail immediately because a retry cannot fix a code or data problem.
+- The Airflow UI has no login and is bound to localhost only; this is for local development.
 ## Documentation
  
 See docs/data_dictionary.md for a description of the Olist tables and their relationships.
