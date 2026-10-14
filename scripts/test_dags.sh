@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export AIRFLOW_UID="$(id -u)"
-[ -f .env ] #|| cp .env.example .env      # CI has no .env; the example values are enough for tests
+[ -f .env ] || cp .env.example .env      # CI has no .env; the example values are enough for tests
 mkdir -p dags logs                        # create on the host, so Docker doesn't create them as root
 
 COMPOSE="docker compose -p olist_test"    # separate project: never touches the dev stack or its volumes
