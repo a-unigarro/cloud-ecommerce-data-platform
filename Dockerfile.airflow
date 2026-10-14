@@ -12,4 +12,4 @@ USER airflow
 # Install only the pyspark pin from requirements.txt (single source of truth).
 # requests is already part of Airflow, and pytest is not needed inside the image.
 COPY requirements.txt /tmp/requirements.txt
-RUN grep -i '^pyspark==' /tmp/requirements.txt | xargs pip install --no-cache-dir
+RUN grep -iE '^(pyspark|pytest)==' /tmp/requirements.txt | xargs pip install --no-cache-dir

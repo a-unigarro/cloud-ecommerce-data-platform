@@ -21,6 +21,8 @@ x-airflow-common: &airflow-common
     - ./logs:/opt/airflow/logs
     - ./src:/opt/airflow/pipeline_code/src:ro      # code: read-only
     - ./data:/opt/airflow/pipeline_code/data       # data: the pipeline writes here
+    - ./tests:/opt/airflow/pipeline_code/tests:ro
+    
 
 services:
   db:
