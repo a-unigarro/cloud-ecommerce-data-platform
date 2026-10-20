@@ -9,9 +9,7 @@ import calendar
 import hashlib
 import json
 import logging
-import os
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 from tracemalloc import start
 
 
@@ -19,7 +17,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from src import config
+from src import config, storage
 
 log = logging.getLogger("ingest_fx_rates")
 DATASET = "exchange_rates"
@@ -59,26 +57,19 @@ def fetch_chunk(session: requests.Session, start: date, end: date) -> tuple[str,
 
 def ingest_chunk(session, start: date, end: date, ingestion_date: str) -> dict:
     request_url, body = fetch_chunk(session, start, end)
-    payload = json.loads(body)  # validate only; we store the original bytes
+    payload = json.loads(body)  # validate only
     required = {"date", "base", "quote", "rate"}
     if (not isinstance(payload, list) or not payload
             or not all(isinstance(r, dict) and required <= r.keys() for r in payload)):
         raise ValueError(f"Unexpected or empty response for {start}..{end}: {request_url}")
-
-    dest_dir = config.RAW_API_DIR / DATASET / f"ingestion_date={ingestion_date}"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / f"rates_{start:%Y-%m}.json"
-    tmp = dest.with_suffix(".json.tmp")
-    try:
-        tmp.write_bytes(body)
-        os.replace(tmp, dest)  # atomic, overwrites on re-run -> idempotent
-    finally:
-        tmp.unlink(missing_ok=True)
+    # Path relative to the raw root: the same string works for a local folder and for S3.
+    relative = f"{DATASET}/ingestion_date={ingestion_date}/rates_{start:%Y-%m}.json"
+    storage.put_bytes(body, storage.join(config.RAW_API_DIR, relative))
 
     return {
         "dataset": DATASET,
         "request_url": request_url,
-        "raw_path": str(dest.relative_to(config.RAW_API_DIR)),
+        "raw_path": relative,
         "ingestion_date": ingestion_date,
         "ingested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "period_start": start.isoformat(),
@@ -90,17 +81,14 @@ def ingest_chunk(session, start: date, end: date, ingestion_date: str) -> dict:
     }
 
 
-def write_manifest(entries: list[dict], ingestion_date: str) -> Path:
-    manifest_dir = config.RAW_API_DIR / "_manifests" / f"ingestion_date={ingestion_date}"
-    manifest_dir.mkdir(parents=True, exist_ok=True)
-    path = manifest_dir / "manifest.json"
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps({"ingestion_date": ingestion_date, "datasets": entries}, indent=2))
-    os.replace(tmp, path)
-    return path
+def write_manifest(entries: list[dict], ingestion_date: str):
+    dest = storage.join(config.RAW_API_DIR, "_manifests", f"ingestion_date={ingestion_date}", "manifest.json")
+    payload = json.dumps({"ingestion_date": ingestion_date, "datasets": entries}, indent=2)
+    storage.put_bytes(payload.encode(), dest)
+    return dest
 
 
-def run(ingestion_date: str) -> Path:
+def run(ingestion_date: str):
     start = date.fromisoformat(config.FX_START_DATE)
     end = date.fromisoformat(config.FX_END_DATE)
     session = make_session()

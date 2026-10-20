@@ -1,30 +1,19 @@
 """Copy Olist CSVs from landing into the raw layer, unmodified, and write a manifest.
-Raw layout (mirrors the future S3 layout):
-    raw/olist/<dataset>/ingestion_date=YYYY-MM-DD/<file>.csv
-    raw/olist/_manifests/ingestion_date=YYYY-MM-DD/manifest.json
+
+The raw layer is a local folder or an S3 location (RAW_DIR=s3://bucket/prefix):
+    <raw>/<dataset>/ingestion_date=YYYY-MM-DD/<file>.csv
+    <raw>/_manifests/ingestion_date=YYYY-MM-DD/manifest.json
 """
 import argparse
 import csv
-import hashlib
 import json
 import logging
-import os
-import shutil
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from src import config
+from src import config, storage
 
 log = logging.getLogger("ingest_olist")
-
-
-def sha256_of(path: Path) -> str:
-    """Checksum read in chunks, so large files never load fully into memory."""
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def profile_csv(path: Path) -> tuple[list[str], int]:
@@ -35,53 +24,42 @@ def profile_csv(path: Path) -> tuple[list[str], int]:
     """
     with path.open(newline="", encoding="utf-8") as f:
         ## Convert the information into an iterator object that handles line breaks inside quoted fields.
-        reader = csv.reader(f) 
-
+        reader = csv.reader(f)
         header = next(reader)
         return header, sum(1 for _ in reader)
 
 
+
 def ingest_dataset(name: str, filename: str, ingestion_date: str) -> dict:
-    src = config.LANDING_DIR / filename
-    dest_dir = config.RAW_DIR / name / f"ingestion_date={ingestion_date}"
-    dest = dest_dir / filename
-    tmp = dest.with_suffix(dest.suffix + ".tmp") ### .csv --> .csv.tmp
+    src = config.LANDING_DIR / filename          # landing is always a local folder
+    relative = f"{name}/ingestion_date={ingestion_date}/{filename}"
 
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        shutil.copy2(src, tmp)
-        src_hash = sha256_of(src)
-        if sha256_of(tmp) != src_hash:
-            raise IOError(f"Checksum mismatch after copying {filename}")
-        os.replace(tmp, dest)  # overwrites on re-run -> idempotent
-    finally:
-        tmp.unlink(missing_ok=True)
+    sha256 = storage.put_file(src, storage.join(config.RAW_DIR, relative))
+    columns, row_count = profile_csv(src)        # the copy is verified identical, so profile the source
 
-    columns, row_count = profile_csv(dest)
     return {
         "dataset": name,
         "source_file": filename,
-        "raw_path": str(dest.relative_to(config.RAW_DIR)),
+        "raw_path": relative,
         "ingestion_date": ingestion_date,
         "ingested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "row_count": row_count,
         "columns": columns,
-        "size_bytes": dest.stat().st_size,
-        "sha256": src_hash,
+        "size_bytes": src.stat().st_size,
+        "sha256": sha256,
     }
 
 
-def write_manifest(entries: list[dict], ingestion_date: str) -> Path:
-    manifest_dir = config.RAW_DIR / "_manifests" / f"ingestion_date={ingestion_date}"
-    manifest_dir.mkdir(parents=True, exist_ok=True)
-    path = manifest_dir / "manifest.json"
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps({"ingestion_date": ingestion_date, "datasets": entries}, indent=2))
-    os.replace(tmp, path)
-    return path
+
+def write_manifest(entries: list[dict], ingestion_date: str):
+    dest = storage.join(config.RAW_DIR, "_manifests", f"ingestion_date={ingestion_date}", "manifest.json")
+    payload = json.dumps({"ingestion_date": ingestion_date, "datasets": entries}, indent=2)
+    storage.put_bytes(payload.encode(), dest)
+    return dest
 
 
-def run(ingestion_date: str) -> Path:
+
+def run(ingestion_date: str):
     entries = []
     for name, filename in config.DATASETS.items():  # core: missing file = hard failure
         if not (config.LANDING_DIR / filename).exists():
@@ -96,7 +74,7 @@ def run(ingestion_date: str) -> Path:
         else:
             log.warning("optional dataset '%s' not found, skipping", name)
 
-    manifest = write_manifest(entries, ingestion_date)
+    manifest = write_manifest(entries, ingestion_date)   # last = completion marker
     log.info("manifest written: %s", manifest)
     return manifest
 

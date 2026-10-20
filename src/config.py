@@ -3,8 +3,18 @@ import os
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
+def _location(env_var: str, default: Path) -> "str | Path":
+    """A data location from the environment: an s3:// URI stays a string, anything else is a Path."""
+    value = os.getenv(env_var)
+    if not value:
+        return default
+    return value if value.startswith("s3://") else Path(value)
+
+RAW_DIR = _location("RAW_DIR", PROJECT_ROOT / "data" / "raw" / "olist")
+RAW_API_DIR = _location("RAW_API_DIR", PROJECT_ROOT / "data" / "raw" / "frankfurter")
+
 LANDING_DIR = Path(os.getenv("LANDING_DIR", PROJECT_ROOT / "data" / "landing" / "olist"))
-RAW_DIR = Path(os.getenv("RAW_DIR", PROJECT_ROOT / "data" / "raw" / "olist"))
+
 
 # Logical dataset name -> source filename.
 # Logical names are what the rest of the pipeline uses; filenames are an
@@ -25,7 +35,6 @@ OPTIONAL_DATASETS = {
     "geolocation": "olist_geolocation_dataset.csv",
 }
 
-RAW_API_DIR = Path(os.getenv("RAW_API_DIR", PROJECT_ROOT / "data" / "raw" / "frankfurter"))
 FX_BASE_URL = "https://api.frankfurter.dev/v2"
 FX_BASE_CURRENCY = "BRL"
 FX_QUOTES = ["EUR", "USD"]
